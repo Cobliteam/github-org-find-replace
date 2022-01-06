@@ -34,15 +34,22 @@ class Updater:
             print(new_content)
             print("---------")
 
-    def create_pr(self, message, branch_name, labels):
+    def create_pr(self, message, branch_name, description, labels):
         if not self.new_contents:
             print("no new contents to use")
             return
 
-        ref = self.repo.create_git_ref(
-            f"refs/heads/{branch_name}",
-            self.repo.get_commits()[0].sha,
-        )
+        try:
+            ref = self.repo.create_git_ref(
+                f"refs/heads/{branch_name}",
+                self.repo.get_commits()[0].sha,
+            )
+        except github.GithubException as err:
+            if err.status == 422:
+                print("already has this branch, ignoring it")
+                return
+            else:
+                raise err
 
         for p, new_content in self.new_contents.items():
             old_file_sha = self.repo.get_file_contents(p, ref.ref).sha
@@ -56,7 +63,7 @@ class Updater:
 
         pull = self.repo.create_pull(
             message,
-            "",
+            description,
             self.repo.default_branch,
             branch_name,
         )
@@ -127,6 +134,7 @@ def cli(
 
     title = click.prompt("Commit message / PR title")
     branch_name = click.prompt("Branch name")
+    description = click.prompt("PR description", default="")
     labels_in_commas = click.prompt("PR labels", default="")
     labels = []
 
@@ -135,7 +143,7 @@ def cli(
 
     for u in updaters:
         click.secho(str(u.repo), fg="magenta")
-        u.create_pr(title, branch_name, labels)
+        u.create_pr(title, branch_name, description, labels)
 
 
 if __name__ == "__main__":
