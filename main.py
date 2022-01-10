@@ -1,4 +1,5 @@
 import os
+import re
 
 import github
 import click
@@ -19,9 +20,13 @@ class Updater:
             self.old_contents[p] = f.decoded_content.decode("utf-8")
             self.old_shas[p] = f.sha
 
-    def find_replace(self, find, replace):
+    def find_replace(self, match_string, replace, regex=False):
         for p, old_content in self.old_contents.items():
-            new_content = old_content.replace(find, replace)
+            if regex:
+                new_content = re.sub(match_string, replace, old_content)
+            else:
+                new_content = old_content.replace(match_string, replace)
+
             if new_content == old_content:
                 print("(no change in content)")
                 continue
@@ -70,8 +75,10 @@ class Updater:
 @click.command()
 @click.option('-h', '--ghe-hostname', type=str, default="", help='Github Enterprise Hostname, example: \'github.company.com\'')
 @click.option('-o', '--organization', type=str, required=True)
-@click.option('-f', '--find', type=str, required=True)
-@click.option('-r', '--replace', type=str, required=True)
+@click.option('-f', '--find', type=str, required=True, help='The string that is going to be searched in GH.')
+@click.option('-s', '--match-string', type=str, required=False, help='Optional string or regex pattern that is going to be replaced inside the matching files instead of --find')
+@click.option('-r', '--replace', type=str, required=True, help='The string or regex pattern to substitute the matched pattern. (regex can be used to put back capture groups i.e. \\1, \\2).')
+@click.option('-x', '--regex', required=False, is_flag=True, default=False, help='Activate regex mode over match-string/replace pair.')
 @click.option('-e', '--extra-search-params', type=str, default="")
 @click.option('-i', '--ignore-existing-branch', is_flag=True, default=False)
 @click.pass_context
@@ -80,7 +87,9 @@ def cli(
     ghe_hostname,
     organization,
     find,
+    match_string,
     replace,
+    regex,
     extra_search_params,
     ignore_existing_branch
 ):
@@ -93,6 +102,9 @@ def cli(
         gh = github.Github(os.environ["GITHUB_API_TOKEN"])
     else:
         gh = github.Github(base_url=f"https://{ghe_hostname}/api/v3", login_or_token=os.environ["GITHUB_API_TOKEN"])
+
+    if not match_string:
+        match_string = find
 
     query = f"org:{organization} {extra_search_params} in:file '{find}'"
     results = gh.search_code(query)
@@ -122,7 +134,7 @@ def cli(
     for u in updaters:
         click.secho(str(u.repo), fg="magenta")
         u.get_old_contents()
-        u.find_replace(find, replace)
+        u.find_replace(match_string, replace, regex)
 
     if not click.confirm("Ready to send these as PRs? We'll get some more information first."):
         return
